@@ -19,3 +19,9 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+"""
+***
+pay attention that to stop and save a fif file u need to input "n" and press enter in the console while stream run
+***
+"""

@@ -1,21 +1,24 @@
 import time
 import mne
-# from psychopy import logging, core, visual
-# import pylsl
 from parameters import *
 import random
 from datetime import datetime
-from cleanPsychopyLOG import main as cleanLOG
-from featureExtraction import main as extractFeatures
-from preProcessing import main as preProcess
-from Model import main as call_model
+# from cleanPsychopyLOG import main as cleanLOG
+# from featureExtraction import main as extractFeatures
+# from preProcessing import main as preProcess
+# from Model import main as call_model
 import keyboard
 import os
 import pandas as pd
-from validationFiles.modelCompetition2_0 import *
+import sys
+# from validationFiles.modelCompetition2_0 import *
+# from psychopy import logging, core, visual
+# import pylsl
 # from DroneModule import Drone
 # import fitPlus
 
+
+#TODO need to change function name to folder and not file
 def createFile(state):
     """
     Create a directory for the experiment or test session.
@@ -127,6 +130,7 @@ def createMNERawObject(dataQueue):
         timeStampsOutputDF = pd.DataFrame(listOfTimeStamp)
         #here we need to define info from createMNEobjectStructure
         dataOutputDF = np.concatenate((dataOutputDF.values.T[:8], np.array([dataOutputDF.values.T[16]])), axis=0)
+        # dataOutputDF = dataOutputDF.values.T[:9]
         info = mne.create_info(ch_names=ch_types, sfreq=samplingRate, ch_types=ch_types)
         raw = mne.io.RawArray(dataOutputDF, info) # TODO - understand which channel is trigger!
     else:
@@ -169,16 +173,22 @@ def showExperiment(state, keepReading, keepPulling, dataQueue, test_model=None, 
         # Indicate that relevant data is coming
         keepPulling.set()
         print("after activating pull curr situation ", keepPulling.is_set())
-        time.sleep(4)  # to remove the first trials being noise on calibration
+       # time.sleep(4)  # to remove the first trials being noise on calibration
         # Show the experiment
-        count = 2
+        # count = 2
         while pullFromQueue:
-            time.sleep(600)
-            count -= 1  # TODO - defined timer which goes down to limit the while loop of pulling data
+            user_input = input("Press 'y' (ignore), press 'n' to end: ").lower()
+
+            if user_input == 'y':
+                return True  # Yes
+            elif user_input == 'n':
+                pullFromQueue = False  # No
+            else:
+                print("Invalid input. Please press 'y' or 'n'.")
             # maybe create c# flag from the simulator
             # finished with the experiment
-            if count == 0:
-                pullFromQueue = False
+            # if count == 0:
+            #     pullFromQueue = False
         # killing the threads
         # wait for the interval not to be too short
         time.sleep(0.7)
