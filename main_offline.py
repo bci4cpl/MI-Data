@@ -1,7 +1,10 @@
 import os
+
+import matplotlib.pyplot as plt
 import mne
 import numpy as np
-
+from scipy import signal
+from data_plots import *
 from preprocessing import *
 from dwt_svm import *
 
@@ -44,9 +47,50 @@ def data_extract(path, lowcut, highcut, order):
 
     data_arr = np.concatenate(np.array(arr))
     data_labels = np.concatenate(np.array(labels))
-    return data_arr, data_labels
+    return data_arr, data_labels, fs
 
-data_arr, data_labels = data_extract(path, lowcut, highcut, order)
+
+def split_data_by_label(data_arr, data_labels):
+    """
+    Splits the EEG data into left-hand (label 0) and right-hand (label 1) trials.
+
+    Parameters:
+        data_arr (ndarray): EEG data of shape (trials, channels, samples).
+        data_labels (ndarray): Corresponding labels (0 for left, 1 for right).
+
+    Returns:
+        left_hand_data (ndarray): EEG trials labeled as left-hand MI.
+        right_hand_data (ndarray): EEG trials labeled as right-hand MI.
+    """
+    left_indices = np.where(data_labels == 0)[0]
+    right_indices = np.where(data_labels == 1)[0]
+
+    left_hand_data = data_arr[left_indices]
+    right_hand_data = data_arr[right_indices]
+
+    return left_hand_data, right_hand_data
+
+
+data_arr, data_labels, fs = data_extract(path, lowcut, highcut, order)
+
+left_data, right_data = split_data_by_label(data_arr,data_labels)
+# c3_freqs, c3_times, c3_Sxx = signal.spectrogram(data_arr[0][1], fs, nperseg=256, noverlap=128, nfft=1024, scaling='density')
+# plt.figure()
+# plt.pcolormesh(c3_times, c3_freqs, 20 * np.log10(c3_Sxx), shading='gouraud')
+# plt.colorbar(label='Power [dB]')
+# plt.ylabel('Freq [Hz]')
+# plt.xlabel('Time [s]')
+# plt.grid()
+# # plt.show()
+
+# c3_freqs, c3_times, c3_Sxx = signal.spectrogram(data_arr[0][1], fs, nperseg=128, noverlap=64, nfft=256, scaling='density')
+# plt.figure()
+# plt.pcolormesh(c3_times[:np.where(c3_freqs > 50)[0][0]], c3_freqs[:np.where(c3_freqs > 50)[0][0]], 20 * np.log10(c3_Sxx[:np.where(c3_freqs > 50)[0][0]]), shading='gouraud')
+# plt.colorbar(label='Power [dB]')
+# plt.ylabel('Freq [Hz]')
+# plt.xlabel('Time [s]')
+# plt.grid()
+# plt.show()
 
 features = FeatureExtraction(data_labels, mode='offline')
 # DWT + CSP features
@@ -57,5 +101,16 @@ svm_model.split_dataset(eeg_features, data_labels)
 svm_model.train_model(calibrate=True)
 rbf_val_acc, y_pred_rbf, rbf_test_accuracy, y_pred_rbf_prob = svm_model.test_model(svm_model.X_test, svm_model.y_test)
 print(f'test acc: {rbf_test_accuracy}')
+
+# plot_mean_spectrograms(data_arr,data_labels,fs)
+
+detect_high_mu_power_segments(right_data, np.ones(len(right_data)), fs, ch_index=1)  # C3
+
+detect_high_mu_power_segments(left_data, np.zeros(len(left_data)), fs, ch_index=3)  # C4
+
+
+
+
+
 
 
