@@ -240,7 +240,7 @@ def detect_high_mu_power_segments(data_arr, data_labels, fs, ch_index, band=(8, 
 
 
     plt.figure(figsize=(12, 6))
-    plt.pcolormesh(t_plot, f_plot, 10 * np.log10(Sxx_plot), shading='gouraud')
+    plt.pcolormesh(t_plot, f_plot, 20 * np.log10(Sxx_plot), shading='gouraud')
     if ch_index == 1:
         plt.title(f"C3 - Example Trial Spectrogram with High 8–14 Hz Segments")
     else:
