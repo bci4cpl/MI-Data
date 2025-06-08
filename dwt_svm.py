@@ -185,7 +185,7 @@ class SVModel:
             
     def train_model(self, calibrate=False):
         # Give more weight to class 0 (minority class)
-        class_weights = {0: 1, 1: 1}  # You can tune these values 0:1.05
+        class_weights = {0: 1, 1: 1.1}  # You can tune these values 0:1.05
         self.rbf_model =  SVC(class_weight=class_weights, kernel='rbf', C=33.0, gamma='scale', probability=True)  # C=5/15 for CNN+CSP+SWT/CSP+DWT
         # self.X_train, self.X_val, self.y_train, self.y_val = train_test_split(features)
         if calibrate:

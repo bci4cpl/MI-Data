@@ -1,5 +1,4 @@
 import os
-
 import matplotlib.pyplot as plt
 import mne
 import numpy as np
@@ -8,7 +7,7 @@ from data_plots import *
 from preprocessing import *
 from dwt_svm import *
 
-path = r'C:\Users\owner\Documents\gtec\Unicorn Suite\Hybrid Black\Unicorn Recorder\recordings'
+path = r'output_files/all data gathered may 21st/recordings'
 lowcut = 4
 highcut = 40
 order = 6
@@ -24,17 +23,33 @@ def data_extract(path, lowcut, highcut, order):
     forest_labels = np.array([0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]) # left hand MI is 0 and right hand MI is 1
 
     for file in dir_list:
+        if not file.lower().endswith('.bdf'):
+            continue  # Skip non-BDF files
+
         raw = mne.io.read_raw_bdf(f'{path}/{file}', preload=True)
         fs = int(raw.info['sfreq'])
         channels = raw.info['ch_names']
         trigger_list = np.where(raw.get_data()[-1] == 1)[0]  # take trigger indices
         raw_data = raw.get_data()[:-1]  # data with no trigger
+
+        # *** if there are more than 8 EEG channels, slice to first 8
+        if raw_data.shape[0] != 8:
+            print(f"*** {file!r} has {raw_data.shape[0]} EEG channels: {channels[:-1]}")
+            print(f"***   slicing to keep only first 8 EEG channels: {channels[:8]}")
+            raw_data = raw_data[:8, :]
+
         b, a = notch_filt(f0, Q, fs)
         notched_data = apply_filter(raw_data, b, a)
         b, a = butter_bandpass(lowcut, highcut, fs, order=order)
         filtered_data = apply_filter(notched_data, b, a)
 
-        seg_raw_data = np.zeros((trigger_list.shape[0], len(channels)-1 , int(win * fs)))
+        # *** always allocate 8 channels in the middle dimension
+        seg_raw_data = np.zeros((trigger_list.shape[0], 8, int(win * fs)))
+
+        # seg_raw_data = np.zeros((trigger_list.shape[0], len(channels)-1 , int(win * fs)))
+
+        print(f"File {file!r}  →  seg_raw_data.shape = {seg_raw_data.shape}")
+
         for index, trig in enumerate(trigger_list):
             seg_raw_data[index] = filtered_data[:, trig: trig + int(win * fs)]
         temp = file.split('.')[0]
@@ -45,8 +60,12 @@ def data_extract(path, lowcut, highcut, order):
             labels.append(desert_labels)
         arr.append(seg_raw_data)
 
-    data_arr = np.concatenate(np.array(arr))
-    data_labels = np.concatenate(np.array(labels))
+    # *** concatenate directly, now that all seg_raw_data have shape (*, 8, *)
+    data_arr = np.concatenate(arr, axis=0)
+    data_labels = np.concatenate(labels, axis=0)
+
+    # data_arr = np.concatenate(np.array(arr))
+    # data_labels = np.concatenate(np.array(labels))
     return data_arr, data_labels, fs
 
 
@@ -74,23 +93,7 @@ def split_data_by_label(data_arr, data_labels):
 data_arr, data_labels, fs = data_extract(path, lowcut, highcut, order)
 
 left_data, right_data = split_data_by_label(data_arr,data_labels)
-# c3_freqs, c3_times, c3_Sxx = signal.spectrogram(data_arr[0][1], fs, nperseg=256, noverlap=128, nfft=1024, scaling='density')
-# plt.figure()
-# plt.pcolormesh(c3_times, c3_freqs, 20 * np.log10(c3_Sxx), shading='gouraud')
-# plt.colorbar(label='Power [dB]')
-# plt.ylabel('Freq [Hz]')
-# plt.xlabel('Time [s]')
-# plt.grid()
-# # plt.show()
 
-# c3_freqs, c3_times, c3_Sxx = signal.spectrogram(data_arr[0][1], fs, nperseg=128, noverlap=64, nfft=256, scaling='density')
-# plt.figure()
-# plt.pcolormesh(c3_times[:np.where(c3_freqs > 50)[0][0]], c3_freqs[:np.where(c3_freqs > 50)[0][0]], 20 * np.log10(c3_Sxx[:np.where(c3_freqs > 50)[0][0]]), shading='gouraud')
-# plt.colorbar(label='Power [dB]')
-# plt.ylabel('Freq [Hz]')
-# plt.xlabel('Time [s]')
-# plt.grid()
-# plt.show()
 
 features = FeatureExtraction(data_labels, mode='offline')
 # DWT + CSP features
@@ -104,12 +107,6 @@ print(f'test acc: {rbf_test_accuracy}')
 
 # plot_mean_spectrograms(data_arr,data_labels,fs)
 
-detect_high_mu_power_segments(right_data, np.ones(len(right_data)), fs, ch_index=1)  # C3
+detect_high_mu_power_segments(right_data, fs, ch_index=1)  # C3
 
-detect_high_mu_power_segments(left_data, np.zeros(len(left_data)), fs, ch_index=3)  # C4
-
-
-
-
-
-
+detect_high_mu_power_segments(left_data, fs, ch_index=3)  # C4

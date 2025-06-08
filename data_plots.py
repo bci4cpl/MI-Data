@@ -188,12 +188,11 @@ def plot_mean_spectrograms(data_arr, data_labels, fs, nperseg=512, noverlap=256,
     plt.show()
 
 
-def detect_high_mu_power_segments(data_arr, data_labels, fs, ch_index, band=(8, 14), window_sec=1.0, nperseg=256, noverlap=128, nfft=512):
+def detect_high_mu_power_segments(data_arr, fs, ch_index, band=(4, 14), window_sec=1.0, nperseg=256, noverlap=128, nfft=512):
     """
     Detects time windows with high 8–14 Hz power in the spectrogram for a given EEG channel.
     Args:
         data_arr (ndarray): EEG data of shape (n_trials, n_channels, n_samples).
-        data_labels (ndarray): Labels for each trial (0 = left, 1 = right).
         fs (float): Sampling rate in Hz.
         ch_index (int): EEG channel index (e.g., 5 for C3).
         band (tuple): Frequency band to analyze (default: 8–14 Hz).
