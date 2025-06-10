@@ -64,8 +64,9 @@ def data_extract(path, lowcut, highcut, order):
     data_arr = np.concatenate(arr, axis=0)
     data_labels = np.concatenate(labels, axis=0)
 
-    # data_arr = np.concatenate(np.array(arr))
-    # data_labels = np.concatenate(np.array(labels))
+    #take only c3 and c4 electrodes for train
+    # data_arr = np.hstack([data_arr[:, np.newaxis, 1, :], data_arr[:, np.newaxis, 3, :]])
+
     return data_arr, data_labels, fs
 
 
