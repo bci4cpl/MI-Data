@@ -188,78 +188,153 @@ def plot_mean_spectrograms(data_arr, data_labels, fs, nperseg=512, noverlap=256,
     plt.show()
 
 
-def detect_high_mu_power_segments(data_arr, fs, ch_index, band=(4, 14), window_sec=1.0, nperseg=256, noverlap=128, nfft=512):
-    """
-    Detects time windows with high 8–14 Hz power in the spectrogram for a given EEG channel.
-    Args:
-        data_arr (ndarray): EEG data of shape (n_trials, n_channels, n_samples).
-        fs (float): Sampling rate in Hz.
-        ch_index (int): EEG channel index (e.g., 5 for C3).
-        band (tuple): Frequency band to analyze (default: 8–14 Hz).
-        window_sec (float): Length of window to scan for high power (in seconds).
-    """
-    all_band_powers = []
-    all_times = []
+# def detect_high_mu_power_segments(data_arr, fs, ch_index, band=(4, 14), window_sec=1.0, nperseg=256, noverlap=128, nfft=512):
+#     """
+#     Detects time windows with high 8–14 Hz power in the spectrogram for a given EEG channel.
+#     Args:
+#         data_arr (ndarray): EEG data of shape (n_trials, n_channels, n_samples).
+#         fs (float): Sampling rate in Hz.
+#         ch_index (int): EEG channel index (e.g., 5 for C3).
+#         band (tuple): Frequency band to analyze (default: 8–14 Hz).
+#         window_sec (float): Length of window to scan for high power (in seconds).
+#     """
+#     all_band_powers = []
+#     all_times = []
+#
+#     for trial in data_arr:
+#         f, t, Sxx = signal.spectrogram(
+#             trial[ch_index], fs=fs, nperseg=nperseg,
+#             noverlap=noverlap, nfft=nfft, scaling='density'
+#         )
+#
+#         # Select only 8–14 Hz
+#         band_mask = (f >= band[0]) & (f <= band[1])
+#         band_power = np.mean(Sxx[band_mask, :], axis=0)  # mean across band
+#
+#         all_band_powers.append(band_power)
+#         all_times.append(t)
+#
+#     all_band_powers = np.array(all_band_powers)  # shape: (n_trials, n_time_bins)
+#     mean_power = np.mean(all_band_powers, axis=0)
+#     time_vector = all_times[0]
+#
+#     # Sliding window over mean power
+#     window_len = int(window_sec * fs / (nperseg - noverlap))  # convert seconds to spectrogram bins
+#     scores = np.convolve(mean_power, np.ones(window_len), mode='valid')
+#
+#     # Detect top windows (e.g., top 3 highest power segments)
+#     top_k = 3
+#     top_indices = np.argsort(scores)[-top_k:]
+#
+#     # Compute spectrogram for plotting
+#     f_plot, t_plot, Sxx_plot = signal.spectrogram(
+#         data_arr[0, ch_index], fs=fs, nperseg=nperseg,
+#         noverlap=noverlap, nfft=nfft, scaling='density'
+#     )
+#
+#     # Apply frequency mask
+#     freq_mask = f_plot <= 40
+#     f_plot = f_plot[freq_mask]
+#     Sxx_plot = Sxx_plot[freq_mask, :]
+#
+#
+#     plt.figure(figsize=(12, 6))
+#     plt.pcolormesh(t_plot, f_plot, 20 * np.log10(Sxx_plot), shading='gouraud')
+#     if ch_index == 1:
+#         plt.title(f"C3 - Example Trial Spectrogram with High 8–14 Hz Segments")
+#     else:
+#         plt.title(f"C4 - Example Trial Spectrogram with High 8–14 Hz Segments")
+#
+#     plt.xlabel("Time [s]")
+#     plt.ylabel("Frequency [Hz]")
+#
+#     # Overlay detected windows
+#     # for idx in top_indices:
+#     #     start_t = time_vector[idx]
+#     #     end_t = time_vector[min(idx + window_len, len(time_vector) - 1)]
+#         # plt.axvspan(start_t, end_t, color='red', alpha=0.3, label='High Mu Power')
+#
+#     plt.colorbar(label='Power [dB]')
+#     # plt.legend()
+#     plt.tight_layout()
+#     plt.clim(vmax=-220)
+#     plt.show()
+#
+#     print("Top high-power time segments (seconds):")
+#     for idx in sorted(top_indices):
+#         print(f"  {time_vector[idx]:.2f}–{time_vector[min(idx + window_len, len(time_vector) - 1)]:.2f} sec")
 
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy import signal
+
+def detect_high_mu_power_segments(data_arr, fs, ch_index,
+                                 alpha_band=(8, 14),
+                                 beta_band=(14, 40),
+                                 window_sec=1.0,
+                                 nperseg=256, noverlap=128, nfft=512):
+    """
+    Plot spectrogram of channel `ch_index` and mark:
+     - red line at time of max 8–14 Hz power
+     - gray line at time of max 14–40 Hz power
+    """
+    # --- 1) Collect band‐power time‐courses across trials ---
+    all_alpha = []
+    all_beta  = []
     for trial in data_arr:
         f, t, Sxx = signal.spectrogram(
-            trial[ch_index], fs=fs, nperseg=nperseg,
+            trial[ch_index], fs, nperseg=nperseg,
             noverlap=noverlap, nfft=nfft, scaling='density'
         )
+        # masks
+        m_alpha = (f >= alpha_band[0]) & (f <= alpha_band[1])
+        m_beta  = (f >= beta_band[0])  & (f <= beta_band[1])
+        # mean over freq‐axis
+        all_alpha.append(np.mean(Sxx[m_alpha, :], axis=0))
+        all_beta .append(np.mean(Sxx[m_beta,  :], axis=0))
 
-        # Select only 8–14 Hz
-        band_mask = (f >= band[0]) & (f <= band[1])
-        band_power = np.mean(Sxx[band_mask, :], axis=0)  # mean across band
+    all_alpha = np.vstack(all_alpha)  # (n_trials, n_timebins)
+    all_beta  = np.vstack(all_beta)
 
-        all_band_powers.append(band_power)
-        all_times.append(t)
+    mean_alpha = np.mean(all_alpha, axis=0)
+    mean_beta  = np.mean(all_beta,  axis=0)
 
-    all_band_powers = np.array(all_band_powers)  # shape: (n_trials, n_time_bins)
-    mean_power = np.mean(all_band_powers, axis=0)
-    time_vector = all_times[0]
+    # --- 2) Find the time‐index of maximum mean power for each band ---
+    alpha_idx = np.argmax(mean_alpha)
+    beta_idx  = np.argmax(mean_beta)
+    time_vector = t  # same for both
 
-    # Sliding window over mean power
-    window_len = int(window_sec * fs / (nperseg - noverlap))  # convert seconds to spectrogram bins
-    scores = np.convolve(mean_power, np.ones(window_len), mode='valid')
+    alpha_time = time_vector[alpha_idx]
+    beta_time  = time_vector[beta_idx]
 
-    # Detect top windows (e.g., top 3 highest power segments)
-    top_k = 3
-    top_indices = np.argsort(scores)[-top_k:]
-
-    # Compute spectrogram for plotting
+    # --- 3) Plot the spectrogram ---
     f_plot, t_plot, Sxx_plot = signal.spectrogram(
-        data_arr[0, ch_index], fs=fs, nperseg=nperseg,
+        data_arr[0, ch_index], fs, nperseg=nperseg,
         noverlap=noverlap, nfft=nfft, scaling='density'
     )
-
-    # Apply frequency mask
-    freq_mask = f_plot <= 40
-    f_plot = f_plot[freq_mask]
-    Sxx_plot = Sxx_plot[freq_mask, :]
-
+    # restrict to 0–40 Hz
+    mask40 = f_plot <= 40
+    f_plot = f_plot[mask40]
+    Sxx_plot = Sxx_plot[mask40, :]
 
     plt.figure(figsize=(12, 6))
-    plt.pcolormesh(t_plot, f_plot, 20 * np.log10(Sxx_plot), shading='gouraud')
-    if ch_index == 1:
-        plt.title(f"C3 - Example Trial Spectrogram with High 8–14 Hz Segments")
-    else:
-        plt.title(f"C4 - Example Trial Spectrogram with High 8–14 Hz Segments")
-
+    plt.pcolormesh(
+        t_plot, f_plot,
+        10 * np.log10(Sxx_plot),
+        shading='gouraud'
+    )
     plt.xlabel("Time [s]")
     plt.ylabel("Frequency [Hz]")
+    plt.title(f"Channel {ch_index}: spectrogram with α/β peaks")
 
-    # Overlay detected windows
-    for idx in top_indices:
-        start_t = time_vector[idx]
-        end_t = time_vector[min(idx + window_len, len(time_vector) - 1)]
-        plt.axvspan(start_t, end_t, color='red', alpha=0.3, label='High Mu Power')
+    # --- 4) Overlay vertical lines ---
+    plt.axvline(alpha_time, color='red',   linestyle='--', label='max α (8–14 Hz)')
+    plt.axvline(beta_time,  color='gray',  linestyle='--', label='max β (14–40 Hz)')
 
-    plt.colorbar(label='Power [dB]')
-    plt.legend()
+    plt.colorbar(label="Power [dB]")
+    plt.legend(loc='upper right')
     plt.tight_layout()
     plt.show()
 
-    print("Top high-power time segments (seconds):")
-    for idx in sorted(top_indices):
-        print(f"  {time_vector[idx]:.2f}–{time_vector[min(idx + window_len, len(time_vector) - 1)]:.2f} sec")
+    print(f"Max α power at {alpha_time:.2f} s, Max β power at {beta_time:.2f} s")
 

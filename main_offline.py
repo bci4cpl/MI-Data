@@ -7,7 +7,7 @@ from data_plots import *
 from preprocessing import *
 from dwt_svm import *
 
-path = r'output_files/all data gathered may 21st/recordings'
+path = r'output_files/all data gathered may 21st/1st no talk 2nd yes talk'
 lowcut = 4
 highcut = 40
 order = 6
@@ -95,15 +95,15 @@ data_arr, data_labels, fs = data_extract(path, lowcut, highcut, order)
 left_data, right_data = split_data_by_label(data_arr,data_labels)
 
 
-features = FeatureExtraction(data_labels, mode='offline')
-# DWT + CSP features
-eeg_features = features.features_concat(data_arr.astype(np.float64), 'dwt+csp')
-
-svm_model = SVModel()
-svm_model.split_dataset(eeg_features, data_labels)
-svm_model.train_model(calibrate=True)
-rbf_val_acc, y_pred_rbf, rbf_test_accuracy, y_pred_rbf_prob = svm_model.test_model(svm_model.X_test, svm_model.y_test)
-print(f'test acc: {rbf_test_accuracy}')
+# features = FeatureExtraction(data_labels, mode='offline')
+# # DWT + CSP features
+# eeg_features = features.features_concat(data_arr.astype(np.float64), 'dwt+csp')
+#
+# svm_model = SVModel()
+# svm_model.split_dataset(eeg_features, data_labels)
+# svm_model.train_model(calibrate=True)
+# rbf_val_acc, y_pred_rbf, rbf_test_accuracy, y_pred_rbf_prob = svm_model.test_model(svm_model.X_test, svm_model.y_test)
+# print(f'test acc: {rbf_test_accuracy}')
 
 # plot_mean_spectrograms(data_arr,data_labels,fs)
 
