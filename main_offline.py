@@ -134,15 +134,6 @@ print(f"Test  acc: {test_acc:.1f}%")
 # plt.tight_layout()
 # plt.show()
 
-# plot_mean_spectrograms_all_channels(
-#     right_data, fs,
-#     channel_names=["Fz","C3", "Cz", "C4", "Pz", "P07", "P08", "Oz"]  # for example
-# )
-#
-# plot_mean_spectrograms_all_channels(
-#     left_data, fs,
-#     channel_names=["Fz","C3", "Cz", "C4", "Pz", "P07", "P08", "Oz"]  # for example
-# )
 
 plot_overall_mean_spectrogram_with_envelopes(right_data, fs)
 plot_overall_mean_spectrogram_with_envelopes(left_data, fs)
