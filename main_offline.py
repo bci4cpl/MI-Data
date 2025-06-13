@@ -6,8 +6,10 @@ from scipy import signal
 from data_plots import *
 from preprocessing import *
 from dwt_svm import *
+from sklearn.metrics import confusion_matrix, accuracy_score
 
-path = r'output_files/all data gathered may 21st/1st no talk 2nd yes talk'
+
+path = r'output_files/all data gathered may 21st/recordings'
 lowcut = 4
 highcut = 40
 order = 6
@@ -16,7 +18,7 @@ def data_extract(path, lowcut, highcut, order):
     dir_list = os.listdir(path)
     arr = []
     labels = []
-    win = 4.5
+    win = 6
     f0 = 50
     Q = 30.0
     desert_labels = np.array([1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]) # left hand MI is 0 and right hand MI is 1
@@ -45,8 +47,6 @@ def data_extract(path, lowcut, highcut, order):
 
         # *** always allocate 8 channels in the middle dimension
         seg_raw_data = np.zeros((trigger_list.shape[0], 8, int(win * fs)))
-
-        # seg_raw_data = np.zeros((trigger_list.shape[0], len(channels)-1 , int(win * fs)))
 
         print(f"File {file!r}  →  seg_raw_data.shape = {seg_raw_data.shape}")
 
@@ -95,18 +95,54 @@ data_arr, data_labels, fs = data_extract(path, lowcut, highcut, order)
 left_data, right_data = split_data_by_label(data_arr,data_labels)
 
 
-# features = FeatureExtraction(data_labels, mode='offline')
-# # DWT + CSP features
-# eeg_features = features.features_concat(data_arr.astype(np.float64), 'dwt+csp')
+features = FeatureExtraction(data_labels, mode='offline')
+# DWT + CSP features
+eeg_features = features.features_concat(data_arr.astype(np.float64), 'dwt+csp')
+
+svm_model = SVModel()
+svm_model.split_dataset(eeg_features, data_labels)
+svm_model.train_model(calibrate=True)
+rbf_val_acc, y_pred_rbf, rbf_test_accuracy, y_pred_rbf_prob = svm_model.test_model(svm_model.X_test, svm_model.y_test)
+print(f'test acc: {rbf_test_accuracy}')
+
+# detect_high_mu_power_segments(right_data, fs, ch_index=1)  # C3
 #
-# svm_model = SVModel()
-# svm_model.split_dataset(eeg_features, data_labels)
-# svm_model.train_model(calibrate=True)
-# rbf_val_acc, y_pred_rbf, rbf_test_accuracy, y_pred_rbf_prob = svm_model.test_model(svm_model.X_test, svm_model.y_test)
-# print(f'test acc: {rbf_test_accuracy}')
+# detect_high_mu_power_segments(left_data, fs, ch_index=3)  # C4
 
-# plot_mean_spectrograms(data_arr,data_labels,fs)
+# plot_band_derivatives(data_arr, fs, ch_indices=(1,3))
 
-detect_high_mu_power_segments(right_data, fs, ch_index=1)  # C3
+# — now get train & val predictions using your fitted rbf_model —
+y_train_pred = svm_model.rbf_model.predict(svm_model.X_train)
+y_val_pred   = svm_model.rbf_model.predict(svm_model.X_val)
+y_test_pred  = y_pred_rbf
 
-detect_high_mu_power_segments(left_data, fs, ch_index=3)  # C4
+# compute accuracies
+train_acc = accuracy_score(svm_model.y_train, y_train_pred) * 100
+val_acc   = accuracy_score(svm_model.y_val,   y_val_pred)   * 100
+test_acc  = accuracy_score(svm_model.y_test,  y_test_pred)  * 100
+# helper to plot one confusion matrix on a given Axes
+print(f"Train acc: {train_acc:.1f}%")
+print(f"Val   acc: {val_acc:.1f}%")
+print(f"Test  acc: {test_acc:.1f}%")
+
+# # — plot all three in one row —
+# fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+# plot_cm_ax(axes[0], svm_model.y_train, y_train_pred, ['Right','Left'], "Train CM", confusion_matrix, accuracy_score)
+# plot_cm_ax(axes[1], svm_model.y_val,   y_val_pred,   ['Right','Left'], "Val   CM", confusion_matrix, accuracy_score)
+# plot_cm_ax(axes[2], svm_model.y_test,  y_test_pred,  ['Right','Left'], "Test  CM", confusion_matrix, accuracy_score)
+#
+# plt.tight_layout()
+# plt.show()
+
+# plot_mean_spectrograms_all_channels(
+#     right_data, fs,
+#     channel_names=["Fz","C3", "Cz", "C4", "Pz", "P07", "P08", "Oz"]  # for example
+# )
+#
+# plot_mean_spectrograms_all_channels(
+#     left_data, fs,
+#     channel_names=["Fz","C3", "Cz", "C4", "Pz", "P07", "P08", "Oz"]  # for example
+# )
+
+plot_overall_mean_spectrogram_with_envelopes(right_data, fs)
+plot_overall_mean_spectrogram_with_envelopes(left_data, fs)
