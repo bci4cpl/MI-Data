@@ -18,7 +18,9 @@ def data_extract(path, lowcut, highcut, order):
     dir_list = os.listdir(path)
     arr = []
     labels = []
-    win = 6
+    win = 8
+    pre_sec = 1.0      # seconds *before* trigger  
+
     f0 = 50
     Q = 30.0
     desert_labels = np.array([1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1]) # left hand MI is 0 and right hand MI is 1
@@ -30,6 +32,12 @@ def data_extract(path, lowcut, highcut, order):
 
         raw = mne.io.read_raw_bdf(f'{path}/{file}', preload=True)
         fs = int(raw.info['sfreq'])
+
+        #parameters to adjust sample range
+        pre_trigger_samples = int(pre_sec * fs)
+        post_trigger_samples = int(win * fs) # after trigger samples to include
+        total_samples = pre_trigger_samples + post_trigger_samples
+
         channels = raw.info['ch_names']
         trigger_list = np.where(raw.get_data()[-1] == 1)[0]  # take trigger indices
         raw_data = raw.get_data()[:-1]  # data with no trigger
@@ -46,12 +54,22 @@ def data_extract(path, lowcut, highcut, order):
         filtered_data = apply_filter(notched_data, b, a)
 
         # *** always allocate 8 channels in the middle dimension
-        seg_raw_data = np.zeros((trigger_list.shape[0], 8, int(win * fs)))
+        seg_raw_data = np.zeros((trigger_list.shape[0], 8, total_samples))
 
         print(f"File {file!r}  →  seg_raw_data.shape = {seg_raw_data.shape}")
 
         for index, trig in enumerate(trigger_list):
-            seg_raw_data[index] = filtered_data[:, trig: trig + int(win * fs)]
+            start = max(trig - pre_trigger_samples, 0)
+            end   = trig + post_trigger_samples
+            segment = filtered_data[:, start:end]
+
+            # If you hit the start boundary, pad on the left with zeros
+            if start == 0 and segment.shape[1] < total_samples:
+                pad_width = total_samples - segment.shape[1]
+                segment = np.pad(segment, ((0,0),(pad_width,0)), mode='constant')
+
+            seg_raw_data[index] = segment
+
         temp = file.split('.')[0]
         temp = temp.split('_')[-1]
         if 'for' in temp:
@@ -106,7 +124,7 @@ rbf_val_acc, y_pred_rbf, rbf_test_accuracy, y_pred_rbf_prob = svm_model.test_mod
 print(f'test acc: {rbf_test_accuracy}')
 
 # detect_high_mu_power_segments(right_data, fs, ch_index=1)  # C3
-#
+
 # detect_high_mu_power_segments(left_data, fs, ch_index=3)  # C4
 
 # plot_band_derivatives(data_arr, fs, ch_indices=(1,3))

@@ -242,8 +242,6 @@ def plot_cm_ax(ax, y_true, y_pred, classes, title,confusion_matrix,accuracy_scor
                     ha="center", va="center",
                     color="white" if cm[i,j] > thresh else "black")
 
-from matplotlib.gridspec import GridSpec
-
 def plot_overall_mean_spectrogram_with_envelopes(data_arr, fs,
                                                  window_sec=0.5,
                                                  overlap_frac=0.6,
@@ -253,29 +251,15 @@ def plot_overall_mean_spectrogram_with_envelopes(data_arr, fs,
     """
     Compute and plot the mean spectrogram across ALL channels and ALL trials,
     with a side colorbar and normalized alpha/beta envelopes beneath.
-
-    Parameters
-    ----------
-    data_arr : ndarray, shape (n_trials, n_channels, n_samples)
-        Your EEG data.
-    fs : float
-        Sampling rate [Hz].
-    window_sec : float
-        Length of each spectrogram window in seconds.
-    overlap_frac : float
-        Fractional overlap between windows (0 < overlap_frac < 1).
-    nfft : int
-        Number of FFT points.
-    fmax : float
-        Maximum frequency to display [Hz].
-    cmap : str
-        Matplotlib colormap name.
     """
-    # 1) Spectrogram parameters
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec
+    from scipy.signal import spectrogram
+
     nperseg = int(window_sec * fs)
     noverlap = int(nperseg * overlap_frac)
 
-    # 2) Compute all single‐channel spectrograms and collect
     all_Sxx = []
     for trial in data_arr:
         for ch in range(trial.shape[0]):
@@ -286,15 +270,12 @@ def plot_overall_mean_spectrogram_with_envelopes(data_arr, fs,
                 scaling='density'
             )
             all_Sxx.append(Sxx)
-    # Stack and average over trials × channels
-    mean_Sxx = np.mean(np.stack(all_Sxx), axis=0)  # shape: (n_freqs, n_times)
+    mean_Sxx = np.mean(np.stack(all_Sxx), axis=0)
 
-    # 3) Frequency mask up to fmax
     freq_mask = f <= fmax
     f_plot = f[freq_mask]
     Sxx_plot = mean_Sxx[freq_mask, :]
 
-    # 4) Compute alpha/beta envelopes
     alpha_mask = (f_plot >= 8) & (f_plot <= 14)
     beta_mask  = (f_plot >= 14) & (f_plot <= 40)
     alpha_ts = np.sum(Sxx_plot[alpha_mask, :], axis=0)
@@ -302,15 +283,15 @@ def plot_overall_mean_spectrogram_with_envelopes(data_arr, fs,
     alpha_env = alpha_ts / np.max(alpha_ts)
     beta_env  = beta_ts  / np.max(beta_ts)
 
-    # 5) Layout: 2 rows × 2 cols, colorbar in right column spanning both rows
-    fig = plt.figure(figsize=(12, 8))
-    gs = GridSpec(2, 2, width_ratios=[20,1], height_ratios=[3,1],
+    fig = plt.figure(figsize=(14, 8))
+    gs = GridSpec(2, 3, width_ratios=[20,1,3], height_ratios=[3,1],
                   wspace=0.3, hspace=0.3)
     ax_spec = fig.add_subplot(gs[0, 0])
     ax_env  = fig.add_subplot(gs[1, 0], sharex=ax_spec)
     cax     = fig.add_subplot(gs[:, 1])
+    ax_legend = fig.add_subplot(gs[1, 2])
+    ax_legend.axis('off')  # just use for legend
 
-    # 6) Plot spectrogram
     im = ax_spec.pcolormesh(t, f_plot, 10*np.log10(Sxx_plot),
                              shading='gouraud', cmap=cmap)
     ax_spec.set_ylim(f_plot[0], f_plot[-1])
@@ -318,15 +299,20 @@ def plot_overall_mean_spectrogram_with_envelopes(data_arr, fs,
     ax_spec.set_title("Overall Mean Spectrogram (all channels & trials)")
     ax_spec.grid(True)
 
-    # 7) Plot envelopes
-    ax_env.plot(t, alpha_env, color='red',   label='α envelope')
-    ax_env.plot(t, beta_env,  color='gray',  label='β envelope', alpha=0.7)
+    # Plot envelopes
+    line1, = ax_env.plot(t, alpha_env, color='red',   label='α envelope')
+    line2, = ax_env.plot(t, beta_env,  color='gray',  label='β envelope', alpha=0.7)
     ax_env.set_xlabel("Time (s)")
     ax_env.set_ylabel("Normalized power")
-    ax_env.legend(loc='upper right')
     ax_env.grid(True)
 
-    # 8) Colorbar (separate axis)
+    ax_env.legend(handles=[line1, line2],
+                loc='upper center',
+                bbox_to_anchor=(0.5, -0.25),
+                ncol=2,
+                fontsize=10,
+                frameon=False)
+
     fig.colorbar(im, cax=cax, label='Power (dB)')
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
