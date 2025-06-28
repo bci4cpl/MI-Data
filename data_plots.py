@@ -4,7 +4,7 @@ from scipy import signal
 from preprocessing import binary_to_direction
 from scipy.signal import spectrogram
 import matplotlib as mpl
-
+from matplotlib.gridspec import GridSpec
 
 
 def plot_idle(idle_data_c3_c4):
@@ -252,10 +252,6 @@ def plot_overall_mean_spectrogram_with_envelopes(data_arr, fs,
     Compute and plot the mean spectrogram across ALL channels and ALL trials,
     with a side colorbar and normalized alpha/beta envelopes beneath.
     """
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from matplotlib.gridspec import GridSpec
-    from scipy.signal import spectrogram
 
     nperseg = int(window_sec * fs)
     noverlap = int(nperseg * overlap_frac)
@@ -269,8 +265,9 @@ def plot_overall_mean_spectrogram_with_envelopes(data_arr, fs,
                 noverlap=noverlap, nfft=nfft,
                 scaling='density'
             )
-            all_Sxx.append(Sxx)
+            all_Sxx.append(10 * np.log10(Sxx + 1e-20))
     mean_Sxx = np.mean(np.stack(all_Sxx), axis=0)
+
 
     freq_mask = f <= fmax
     f_plot = f[freq_mask]
@@ -292,7 +289,7 @@ def plot_overall_mean_spectrogram_with_envelopes(data_arr, fs,
     ax_legend = fig.add_subplot(gs[1, 2])
     ax_legend.axis('off')  # just use for legend
 
-    im = ax_spec.pcolormesh(t, f_plot, 10*np.log10(Sxx_plot),
+    im = ax_spec.pcolormesh(t, f_plot, Sxx_plot,
                              shading='gouraud', cmap=cmap)
     ax_spec.set_ylim(f_plot[0], f_plot[-1])
     ax_spec.set_ylabel("Frequency (Hz)")
@@ -317,3 +314,94 @@ def plot_overall_mean_spectrogram_with_envelopes(data_arr, fs,
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.show()
+
+    return Sxx_plot, f_plot, t
+
+def diff_mean_spectrogram(data_arr, fs,
+                          window_sec=0.5, overlap_frac=0.6,
+                          nfft=512, fmax=40, cmap='RdBu_r'):
+    """
+    Compute and plot the time‐difference of the mean spectrogram
+    across all channels & trials, i.e. np.diff(mean_Sxx, axis=1).
+    Overlays linear‐difference envelopes in alpha and beta bands.
+
+    Parameters
+    ----------
+    data_arr : ndarray, shape (n_trials, n_channels, n_samples)
+    fs       : float, sampling rate [Hz]
+    window_sec : float, spectrogram window length [s]
+    overlap_frac : float, fraction overlap between windows
+    nfft     : int, FFT length
+    fmax     : float, max frequency to display [Hz]
+    cmap     : str, diverging colormap for difference
+    """
+    # 1) Spectrogram params
+    nperseg  = int(window_sec * fs)
+    noverlap = int(nperseg * overlap_frac)
+
+    # 2) Collect all linear‐power spectrograms
+    all_S = []
+    for trial in data_arr:
+        for ch in range(trial.shape[0]):
+            f, t, Sxx = spectrogram(
+                trial[ch], fs,
+                window='hann', nperseg=nperseg,
+                noverlap=noverlap, nfft=nfft,
+                scaling='density'
+            )
+            all_S.append(Sxx)
+    mean_Sxx = np.mean(np.stack(all_S), axis=0)  # (n_freqs, n_times)
+
+    # 3) Mask frequencies up to fmax
+    freq_mask = (f <= fmax)
+    f_plot    = f[freq_mask]
+    Sxx_plot  = mean_Sxx[freq_mask, :]
+
+    # 4) Compute time‐differences
+    dS = np.diff(Sxx_plot, axis=1)      # shape (n_freqs, n_times-1)
+    t_diff = t[1:]
+
+    # 5) Compute linear envelopes of the band‐differences
+    α_mask = (f_plot >= 8)  & (f_plot <= 14)
+    β_mask = (f_plot >= 14) & (f_plot <= 40)
+
+    α_env = np.sum(dS[α_mask, :], axis=0)
+    β_env = np.sum(dS[β_mask, :], axis=0)
+
+    # 6) Plotting layout
+    fig = plt.figure(figsize=(12, 6))
+    gs  = GridSpec(2, 2, height_ratios=[4,1], hspace=0.3, wspace=0.3)
+
+    ax_spec = fig.add_subplot(gs[0, 0])
+    ax_env  = fig.add_subplot(gs[1, 0], sharex=ax_spec)
+    ax_cb   = fig.add_subplot(gs[:, 1])
+
+    # 7) Spectrogram‐difference plot
+    im = ax_spec.pcolormesh(t_diff, f_plot, dS,
+                            shading='gouraud', cmap=cmap,
+                            vmin=-np.max(np.abs(dS)),
+                            vmax= np.max(np.abs(dS)))
+    ax_spec.set_ylabel("Frequency (Hz)")
+    ax_spec.set_title("Δ Mean Spectrogram (linear power diff)")
+    ax_spec.grid(True)
+
+    # 8) Envelope plot (linear sums, no dB)
+    line1, = ax_env.plot(t_diff, α_env, color='C0', label='Δ α-band')
+    line2, = ax_env.plot(t_diff, β_env, color='C1', label='Δ β-band')
+    ax_env.set_xlabel("Time (s)")
+    ax_env.set_ylabel("Sum Δ power")
+    ax_env.grid(True)
+
+    # 9) Legend below envelope
+    ax_env.legend(loc='upper center', bbox_to_anchor=(0.5, -0.3),
+                  ncol=2, frameon=False)
+
+    # 10) Colorbar
+    fig.colorbar(im, cax=ax_cb, label='Δ Power (linear units)')
+
+    plt.tight_layout()
+    plt.show()
+
+    # Return the difference matrix & axes for further use
+    return dS, f_plot, t_diff
+

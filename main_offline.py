@@ -7,6 +7,16 @@ from data_plots import *
 from preprocessing import *
 from dwt_svm import *
 from sklearn.metrics import confusion_matrix, accuracy_score
+from matplotlib.gridspec import GridSpec
+from scipy.signal import butter, filtfilt, hilbert
+from mne.decoding import CSP
+from pyriemann.estimation   import Covariances
+from pyriemann.tangentspace import TangentSpace
+from sklearn.pipeline       import Pipeline, FeatureUnion
+from sklearn.svm import SVC
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+
+
 
 
 path = r'output_files/all data gathered may 21st/recordings'
@@ -14,12 +24,15 @@ lowcut = 4
 highcut = 40
 order = 6
 
+#notes about training: using pre = 0 and win = 7 with extra features, gives train 93% and test 70%
+#using the 7 sec window is the most logical choice to classify between right and left because
+#thats the imagination time
 def data_extract(path, lowcut, highcut, order):
     dir_list = os.listdir(path)
     arr = []
     labels = []
-    win = 8
-    pre_sec = 1.0      # seconds *before* trigger  
+    win = 7
+    pre_sec = 0     # seconds *before* trigger  
 
     f0 = 50
     Q = 30.0
@@ -86,7 +99,6 @@ def data_extract(path, lowcut, highcut, order):
     # data_labels = np.concatenate(np.array(labels))
     return data_arr, data_labels, fs
 
-
 def split_data_by_label(data_arr, data_labels):
     """
     Splits the EEG data into left-hand (label 0) and right-hand (label 1) trials.
@@ -107,51 +119,260 @@ def split_data_by_label(data_arr, data_labels):
 
     return left_hand_data, right_hand_data
 
+def augment_with_envelopes_and_diffs(data_arr, fs,
+                                     alpha_band=(8,14),
+                                     beta_band =(14,40),
+                                     mode='both'):
+    """
+    data_arr : ndarray, shape (n_trials, n_ch, n_samps)
+    fs       : sampling rate
+    alpha_band, beta_band :   2-tuples of frequency bounds
+    mode     : 'hilbert', 'diff', or 'both' (default).
+               Controls which extra features are appended.
+
+    Returns
+    -------
+    aug : ndarray, shape (n_trials, n_ch + N_extra, n_samps)
+        where N_extra = 2 if mode in {'hilbert','diff'}, else 4.
+    """
+    def bandpass(x, fs, band, order=4):
+        b, a = butter(order, [band[0]/(fs/2), band[1]/(fs/2)], btype='band')
+        return filtfilt(b, a, x)
+
+    n_trials, n_ch, n_samps = data_arr.shape
+
+    # decide how many extra channels
+    if mode == 'hilbert' or mode == 'diff':
+        n_extra = 2
+    elif mode == 'both':
+        n_extra = 4
+    else:
+        raise ValueError("mode must be 'hilbert', 'diff', or 'both'")
+
+    aug = np.zeros((n_trials, n_ch + n_extra, n_samps), dtype=float)
+
+    for i in range(n_trials):
+        trial = data_arr[i]           # shape (n_ch, n_samps)
+        # copy original EEG
+        aug[i, :n_ch] = trial
+
+        # compute the grand-average signal across channels
+        sig = trial.mean(axis=0)      # shape (n_samps,)
+
+        # bandpassed + Hilbert envelopes
+        α = np.abs(hilbert(bandpass(sig, fs, alpha_band)))
+        β = np.abs(hilbert(bandpass(sig, fs, beta_band)))
+
+        # normalize envelopes to [0,1]
+        α /= (α.max() + 1e-12)
+        β /= (β.max() + 1e-12)
+
+        # first differences
+        dα = np.concatenate([[0], np.diff(α)])
+        dβ = np.concatenate([[0], np.diff(β)])
+
+        # now stack in the requested mode
+        col = n_ch
+        if mode in ('hilbert', 'both'):
+            aug[i, col]   = α;   col += 1
+            aug[i, col]   = β;   col += 1
+        if mode in ('diff',    'both'):
+            aug[i, col]   = dα;  col += 1
+            aug[i, col]   = dβ;  col += 1
+
+    return aug
 
 data_arr, data_labels, fs = data_extract(path, lowcut, highcut, order)
+# print("this is data_arr:",data_arr)
+print("this is data_arr.shape:",np.shape(data_arr))
+
+# print("this is data_labels:",data_labels)
+print("this is data_labels.shape:",np.shape(data_labels))
 
 left_data, right_data = split_data_by_label(data_arr,data_labels)
 
+#---------------------------------Original train
 
-features = FeatureExtraction(data_labels, mode='offline')
-# DWT + CSP features
-eeg_features = features.features_concat(data_arr.astype(np.float64), 'dwt+csp')
+# features = FeatureExtraction(data_labels, mode='offline')
+# eeg_features = features.features_concat(data_arr.astype(np.float64), 'dwt+csp')
 
-svm_model = SVModel()
-svm_model.split_dataset(eeg_features, data_labels)
-svm_model.train_model(calibrate=True)
-rbf_val_acc, y_pred_rbf, rbf_test_accuracy, y_pred_rbf_prob = svm_model.test_model(svm_model.X_test, svm_model.y_test)
-print(f'test acc: {rbf_test_accuracy}')
+# svm_model = SVModel()
+# svm_model.split_dataset(eeg_features, data_labels)      # trains once here
+# rbf_val_acc, y_pred_rbf, rbf_test_accuracy, _ = svm_model.test_model(
+#     svm_model.X_test, svm_model.y_test)
+
+# # only compute & print final summary here
+# y_train_pred = svm_model.rbf_model.predict(svm_model.X_train)
+# y_val_pred   = svm_model.rbf_model.predict(svm_model.X_val)
+# y_test_pred  = y_pred_rbf
+
+# train_acc = accuracy_score(svm_model.y_train, y_train_pred)*100
+# val_acc   = accuracy_score(svm_model.y_val,   y_val_pred)*100
+# test_acc  = accuracy_score(svm_model.y_test,  y_test_pred)*100
+
+# print(f"Train acc: {train_acc:.1f}%")
+# print(f"Val   acc: {val_acc:.1f}%")
+# print(f"Test  acc: {test_acc:.1f}%")
+
+
+#--------------------------------applying extra features with CSP only
+# the results give similar numbers, train = 79-80% and test = 76%
+# chossing components = 4 for the csp seems to be the best
+
+# 1) split your raw data
+X_train, X_test, y_train, y_test = train_test_split(
+    data_arr, data_labels,
+    test_size=0.20, stratify=data_labels,
+    random_state=42
+)
+
+# 2) augment both train and test with envelopes + diffs
+X_train_aug = augment_with_envelopes_and_diffs(X_train, fs, mode='diff')
+X_test_aug  = augment_with_envelopes_and_diffs(X_test,  fs, mode= 'diff')
+
+# 3) build the pipeline
+csp = CSP(n_components=4, reg=None, log=True)
+svm = SVC(kernel='rbf', C=33.0, class_weight={0:1,1:1.2}, probability=True)
+pipe = Pipeline([('csp', csp), ('svc', svm)])
+
+# 4) internal 5-fold CV on the *augmented* training set
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+cv_scores = cross_val_score(pipe, X_train_aug, y_train,
+                            cv=cv, scoring='accuracy')
+print(f"Train CV accuracy: {cv_scores.mean():.3f} ± {cv_scores.std():.3f}")
+
+# 5) final fit on full train
+pipe.fit(X_train_aug, y_train)
+
+# 6) evaluate on train, test
+y_train_pred = pipe.predict(X_train_aug)
+y_test_pred  = pipe.predict(X_test_aug)
+
+train_acc = accuracy_score(y_train, y_train_pred)
+test_acc  = accuracy_score(y_test,  y_test_pred)
+print(f"Train accuracy: {train_acc:.3f}")
+print(f"Test  accuracy: {test_acc:.3f}")
+
+# 7) confusion matrices
+print("Train confusion matrix:")
+print(confusion_matrix(y_train, y_train_pred))
+print("Test confusion matrix:")
+print(confusion_matrix(y_test,  y_test_pred))
+
+
+#-------------------------------- train+val+test, csp+svm+riemannian
+#results train 99%, val= 78%, test = 73%
+
+# # 1) Train/Val/Test split
+# X_tmp, X_test, y_tmp, y_test = train_test_split(
+#     data_arr, data_labels,
+#     test_size=0.20,
+#     stratify=data_labels,
+#     random_state=42
+# )
+# X_train, X_val, y_train, y_val = train_test_split(
+#     X_tmp, y_tmp,
+#     test_size=0.25,        # 0.25 * 0.80 = 0.20
+#     stratify=y_tmp,
+#     random_state=42
+# )
+
+# # 2) Dual‐branch feature union: CSP(log-var)  &  Riemannian Tangent-Space
+# feats = FeatureUnion([
+#     ("csp", Pipeline([
+#         ("CSP", CSP(n_components=4, reg=None, log=True))
+#     ])),
+#     ("riem", Pipeline([
+#         ("cov", Covariances(estimator="lwf")),
+#         ("ts",  TangentSpace(metric="riemann"))
+#     ])),
+# ])
+
+# # 3) Final pipeline: features → RBF-SVM
+# pipe = Pipeline([
+#     ("features", feats),
+#     ("svc", SVC(kernel="rbf",
+#                 C=33.0,
+#                 class_weight={0:1, 1:1.2},
+#                 probability=True))
+# ])
+
+# # 4) 5-fold CV on TRAIN set only (for quick internal check)
+# cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+# cv_scores = cross_val_score(pipe, X_train, y_train, cv=cv, scoring="accuracy")
+# print(f"➤ Train CV (5-fold) accuracy: {100*cv_scores.mean():.1f}% ± {100*cv_scores.std():.1f}%")
+
+# # 5) Fit on full TRAIN, evaluate on TRAIN / VAL / TEST
+# pipe.fit(X_train, y_train)
+
+# for name, X, y in [("Train", X_train, y_train),
+#                    ("Validation", X_val, y_val),
+#                    ("Test", X_test, y_test)]:
+#     y_pred = pipe.predict(X)
+#     acc    = accuracy_score(y, y_pred) * 100
+#     cm     = confusion_matrix(y, y_pred)
+#     print(f"\n➤ {name} accuracy: {acc:.1f}%")
+#     print(f"{name} confusion matrix:\n{cm}")
+
+
+#---------------------------------------train,val, test csp + svm
+#results very similar to result with no val...: train = 80%, val = 76%, test = 75.6% !
+
+# # 1) First split off 20% as a final TEST set
+# X_temp, X_test, y_temp, y_test = train_test_split(
+#     data_arr, data_labels,
+#     test_size=0.20,
+#     stratify=data_labels,
+#     random_state=42
+# )
+
+# # 2) Then split the remaining 80% into TRAIN (60%) and VAL (20%)
+# X_train, X_val, y_train, y_val = train_test_split(
+#     X_temp, y_temp,
+#     test_size=0.25,      # 0.25 * 0.80 = 0.20 total
+#     stratify=y_temp,
+#     random_state=42
+# )
+
+# # 3) Augment each fold with your envelopes & diffs
+# X_train_aug = augment_with_envelopes_and_diffs(X_train, fs, mode='diff')
+# X_val_aug   = augment_with_envelopes_and_diffs(X_val,   fs, mode='diff')
+# X_test_aug  = augment_with_envelopes_and_diffs(X_test,  fs, mode='diff')
+
+# # 4) Build the CSP→SVM pipeline
+# pipe = Pipeline([
+#     ("csp", CSP(n_components=4, reg=None, log=True)),
+#     ("svc", SVC(kernel='rbf',
+#                 C=33.0,
+#                 class_weight={0:1, 1:1.2},
+#                 probability=True))
+# ])
+
+# # 5) Quick 5-fold CV on *TRAIN* only
+# cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+# cv_scores = cross_val_score(pipe, X_train_aug, y_train,
+#                             cv=cv, scoring='accuracy')
+# print(f"Train CV (5-fold) accuracy: {100*cv_scores.mean():.1f}% ± {100*cv_scores.std():.1f}%")
+
+# # 6) Fit on the full TRAIN set
+# pipe.fit(X_train_aug, y_train)
+
+# # 7) Evaluate on Train / Val / Test
+# for name, X, y in [
+#     ("Train",      X_train_aug, y_train),
+#     ("Validation", X_val_aug,   y_val),
+#     ("Test",       X_test_aug,  y_test),
+# ]:
+#     y_pred = pipe.predict(X)
+#     acc    = accuracy_score(y, y_pred) * 100
+#     cm     = confusion_matrix(y, y_pred)
+#     print(f"\n{name} accuracy: {acc:.1f}%")
+#     print(f"{name} confusion matrix:\n{cm}")
+
+#----------------------------------------Plots
 
 # detect_high_mu_power_segments(right_data, fs, ch_index=1)  # C3
 
 # detect_high_mu_power_segments(left_data, fs, ch_index=3)  # C4
 
 # plot_band_derivatives(data_arr, fs, ch_indices=(1,3))
-
-# — now get train & val predictions using your fitted rbf_model —
-y_train_pred = svm_model.rbf_model.predict(svm_model.X_train)
-y_val_pred   = svm_model.rbf_model.predict(svm_model.X_val)
-y_test_pred  = y_pred_rbf
-
-# compute accuracies
-train_acc = accuracy_score(svm_model.y_train, y_train_pred) * 100
-val_acc   = accuracy_score(svm_model.y_val,   y_val_pred)   * 100
-test_acc  = accuracy_score(svm_model.y_test,  y_test_pred)  * 100
-# helper to plot one confusion matrix on a given Axes
-print(f"Train acc: {train_acc:.1f}%")
-print(f"Val   acc: {val_acc:.1f}%")
-print(f"Test  acc: {test_acc:.1f}%")
-
-# # — plot all three in one row —
-# fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-# plot_cm_ax(axes[0], svm_model.y_train, y_train_pred, ['Right','Left'], "Train CM", confusion_matrix, accuracy_score)
-# plot_cm_ax(axes[1], svm_model.y_val,   y_val_pred,   ['Right','Left'], "Val   CM", confusion_matrix, accuracy_score)
-# plot_cm_ax(axes[2], svm_model.y_test,  y_test_pred,  ['Right','Left'], "Test  CM", confusion_matrix, accuracy_score)
-#
-# plt.tight_layout()
-# plt.show()
-
-
-plot_overall_mean_spectrogram_with_envelopes(right_data, fs)
-plot_overall_mean_spectrogram_with_envelopes(left_data, fs)
