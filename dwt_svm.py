@@ -29,6 +29,7 @@ class FeatureExtraction:
 
     def extract_csp_features(self, signal):
         # Extract CSP features
+        # 99 components might be very high number... making overfit to train
         csp = CSP(n_components=99, reg=None, log=True, norm_trace=False)
 
         if self.mode == 'offline':
